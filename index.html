@@ -173,6 +173,39 @@ button{border:0;border-radius:14px;min-height:42px;padding:0 13px;font-weight:80
 }
 body{padding-bottom:90px!important}
 
+
+.nearby-title{
+  margin:11px 0 7px;
+  font-size:13px;
+  font-weight:900;
+  color:#4c554d
+}
+.nearby-grid{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:6px;
+  margin-bottom:10px
+}
+.nearby-btn{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:3px;
+  min-height:52px;
+  padding:7px 4px;
+  border-radius:10px;
+  text-decoration:none;
+  font-size:18px;
+  font-weight:900;
+  touch-action:manipulation;
+  border:1px solid #ddd5c4
+}
+.nearby-btn span{font-size:10px;line-height:1.15}
+.nearby-btn.hotel{background:#eef4ff;color:#355b88}
+.nearby-btn.onsen{background:#fff1eb;color:#9a5030}
+.nearby-btn.food{background:#f6f2e6;color:#6d5b2f}
+
 </style>
 </head>
 <body>
@@ -241,6 +274,13 @@ function popup(s){
         <a class="social-btn x" href="${xUrl}" target="_blank" rel="noopener">𝕏 X</a>
         <a class="social-btn fb" href="${fbUrl}" target="_blank" rel="noopener">f Facebook</a>
         <a class="social-btn yt" href="${ytUrl}" target="_blank" rel="noopener">▶ YouTube</a>
+      </div>
+
+      <div class="nearby-title">周辺を探す</div>
+      <div class="nearby-grid">
+        <a class="nearby-btn hotel" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`ホテル ${s.name}`)}" target="_blank" rel="noopener">🏨<span>周辺の宿</span></a>
+        <a class="nearby-btn onsen" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`温泉 ${s.name}`)}" target="_blank" rel="noopener">♨️<span>周辺の温泉</span></a>
+        <a class="nearby-btn food" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`飲食店 ${s.name}`)}" target="_blank" rel="noopener">🍴<span>周辺の飲食店</span></a>
       </div>
 
       <div class="popup-route-title">📍 現在地からの移動方法</div>
