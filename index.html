@@ -34,6 +34,18 @@ button{border:0;border-radius:14px;min-height:42px;padding:0 13px;font-weight:80
 .popup-actions{display:flex;gap:7px;margin-top:11px}.popup-link{flex:1;text-align:center;text-decoration:none;border-radius:10px;padding:8px 8px;font-size:11px;font-weight:800}.popup-link.map{color:white;background:#3b6847}.popup-link.web{color:#5d4938;background:#eee2c9}
 .notice{position:absolute;z-index:1100;left:12px;right:12px;bottom:max(13px,env(safe-area-inset-bottom));background:rgba(255,253,248,.96);border:1px solid #e2dac9;border-radius:16px;padding:11px 13px;box-shadow:0 8px 26px rgba(41,59,45,.16);font-size:11px;color:#667269;display:none}
 @media(min-width:720px){header{padding-left:20px;padding-right:20px}.toolbar{max-width:720px}.nature-strip{left:20px;right:20px}}
+
+.station-popup{min-width:230px;padding:2px 0 3px}
+.station-popup .popup-name{font-size:17px;font-weight:900;color:#234d32;margin-bottom:3px}
+.station-popup .popup-meta{font-size:12px;color:#657064;margin-bottom:8px}
+.popup-homepage{display:block;text-decoration:none;text-align:center;background:#edf4e7;color:#285b3b;font-weight:800;padding:9px 10px;border-radius:10px;margin:8px 0}
+.popup-nohome{font-size:12px;color:#8a8a7d;text-align:center;margin:8px 0}
+.popup-route-title{font-size:13px;font-weight:900;color:#4c554d;margin:10px 0 7px}
+.popup-route-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.popup-route-grid button{border:0;border-radius:10px;background:#285b3b;color:white;padding:9px 4px 8px;font-size:18px;font-weight:800;line-height:1.05}
+.popup-route-grid button span{display:block;font-size:11px;margin-top:4px}
+.popup-google-route{width:100%;margin-top:7px;border:1px solid #d7d2bf;border-radius:10px;background:#fffdf8;color:#3d4c42;padding:8px 6px;font-size:12px;font-weight:800}
+
 </style>
 </head>
 <body>
@@ -52,9 +64,56 @@ function setStatus(msg,ms=0){
   if(ms)setTimeout(()=>el.classList.add('hidden'),ms);
 }
 function popup(s){
-  const q=encodeURIComponent(`道の駅 ${s.name} ${s.pref} ${s.loc||''}`);
-  const note=s.approx?'<div class="popup-reg">※位置は概略です</div>':'';
-  return `<div class="popup-name">${esc(s.name)}</div><div class="popup-meta">${esc(s.pref)} ${esc(s.loc||'')}</div><div class="popup-reg">${esc(s.reg||'')} ${esc(s.date||'')}</div>${note}<div class="popup-actions"><a class="popup-link map" href="https://www.google.com/maps/search/?api=1&query=${q}" target="_blank" rel="noopener">地図で見る</a>${s.url?`<a class="popup-link web" href="${esc(s.url)}" target="_blank" rel="noopener">公式情報</a>`:''}</div>`;
+  const homepage = s.url
+    ? `<a class="popup-homepage" href="${esc(s.url)}" target="_blank" rel="noopener">🌐 ホームページ</a>`
+    : `<div class="popup-nohome">ホームページ情報なし</div>`;
+  return `
+    <div class="station-popup">
+      <div class="popup-name">${esc(s.name)}</div>
+      <div class="popup-meta">${esc(s.pref)} ${esc(s.loc||'')}</div>
+      ${s.approx?'<div class="popup-reg">※ピン位置は概略です</div>':''}
+      ${homepage}
+      <div class="popup-route-title">📍 現在地からの移動方法</div>
+      <div class="popup-route-grid">
+        <button type="button" onclick="routeToStation(${Number(s.lat)},${Number(s.lon)},'d')">🚗<span>車</span></button>
+        <button type="button" onclick="routeToStation(${Number(s.lat)},${Number(s.lon)},'w')">🚶<span>徒歩</span></button>
+        <button type="button" onclick="routeToStation(${Number(s.lat)},${Number(s.lon)},'r')">🚌<span>公共交通</span></button>
+      </div>
+      <button type="button" class="popup-google-route" onclick="routeToStationGoogle(${Number(s.lat)},${Number(s.lon)})">Googleマップでルート</button>
+    </div>`;
+}
+
+window.__currentPos = null;
+
+function getCurrentPositionForRoute(done){
+  if(window.__currentPos){ done(window.__currentPos); return; }
+  if(!navigator.geolocation){
+    setStatus('現在地を取得できません',2200);
+    return;
+  }
+  setStatus('現在地を取得しています…');
+  navigator.geolocation.getCurrentPosition(
+    p=>{
+      window.__currentPos=[p.coords.latitude,p.coords.longitude];
+      done(window.__currentPos);
+    },
+    ()=>setStatus('現在地を取得できませんでした。Safariの位置情報を許可してください。',2800),
+    {enableHighAccuracy:true,timeout:10000,maximumAge:60000}
+  );
+}
+
+function routeToStation(lat,lon,mode){
+  getCurrentPositionForRoute(origin=>{
+    const url=`https://maps.apple.com/?saddr=${origin[0]},${origin[1]}&daddr=${lat},${lon}&dirflg=${mode}`;
+    window.location.href=url;
+  });
+}
+
+function routeToStationGoogle(lat,lon){
+  getCurrentPositionForRoute(origin=>{
+    const url=`https://www.google.com/maps/dir/?api=1&origin=${origin[0]},${origin[1]}&destination=${lat},${lon}`;
+    window.location.href=url;
+  });
 }
 function render(q=''){
   if(!window.__stationLayer||!window.__stationMap)return;
@@ -93,7 +152,7 @@ render();
 setStatus(`国交省1,231駅をアプリ内データから表示中`,2200);
 notice.style.display='none';
 search.addEventListener('input',e=>{clearTimeout(timer);timer=setTimeout(()=>render(e.target.value),170)});
-document.getElementById('locateBtn').addEventListener('click',()=>{if(!navigator.geolocation)return setStatus('現在地を取得できません',1800);setStatus('現在地を探しています…');navigator.geolocation.getCurrentPosition(p=>{const a=[p.coords.latitude,p.coords.longitude];L.circleMarker(a,{radius:9,weight:3,color:'#315d3c',fillColor:'#fffdf8',fillOpacity:1}).addTo(map).bindPopup('📍 現在地').openPopup();map.setView(a,10);setStatus('現在地へ移動しました',1400)},()=>setStatus('現在地を取得できませんでした',1800),{enableHighAccuracy:true,timeout:10000})});
+document.getElementById('locateBtn').addEventListener('click',()=>{if(!navigator.geolocation)return setStatus('現在地を取得できません',1800);setStatus('現在地を探しています…');navigator.geolocation.getCurrentPosition(p=>{const a=[p.coords.latitude,p.coords.longitude];window.__currentPos=a;L.circleMarker(a,{radius:9,weight:3,color:'#315d3c',fillColor:'#fffdf8',fillOpacity:1}).addTo(map).bindPopup('📍 現在地').openPopup();map.setView(a,10);setStatus('現在地へ移動しました',1400)},()=>setStatus('現在地を取得できませんでした',1800),{enableHighAccuracy:true,timeout:10000})});
 if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
 })();
 </script></body></html>
