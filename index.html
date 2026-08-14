@@ -223,6 +223,26 @@ body{padding-bottom:90px!important}
 .rakuten-settings-note{font-size:10px;color:#7c817b;margin-top:6px;line-height:1.4}
 
 .hotel-master-status{font-size:11px;font-weight:800;color:#496e9f;margin-top:6px}
+
+/* 鉄道駅・宿泊施設切替を画面の最下端に固定 */
+.rail-fixed-bar{
+  position:fixed!important;
+  left:0!important;right:0!important;bottom:0!important;
+  z-index:99999!important;
+  border-radius:16px 16px 0 0!important;
+  padding:8px 10px calc(8px + env(safe-area-inset-bottom))!important;
+  margin:0!important;
+  display:grid!important;
+  grid-template-columns:auto 1fr 1fr!important;
+  gap:7px!important;
+}
+.rail-fixed-bar .rail-switch,.rail-fixed-bar .hotel-switch{
+  min-width:0!important;
+  justify-content:center!important;
+  padding:8px 7px!important;
+}
+body{padding-bottom:calc(84px + env(safe-area-inset-bottom))!important}
+
 </style>
 </head>
 <body>
@@ -355,40 +375,102 @@ function routeToStationGoogle(lat,lon){
     window.location.href=url;
   });
 }
-function render(q=''){
-  if(!window.__stationLayer||!window.__stationMap)return;
-  const layer=window.__stationLayer, map=window.__stationMap;
+let stationRenderTimer=null;
+
+function stationLimitForZoom(z){
+  if(z<=5) return 80;    // 日本全国
+  if(z<=7) return 140;   // 地方・都道府県
+  if(z<=9) return 220;   // 市町村
+  if(z<=11) return 350;  // 市街地
+  return 600;            // 詳細
+}
+
+function pickStationsEvenly(items,limit,bounds){
+  if(items.length<=limit)return items;
+  const sw=bounds.getSouthWest(),ne=bounds.getNorthEast();
+  const rows=Math.max(2,Math.round(Math.sqrt(limit*.75)));
+  const cols=Math.max(2,Math.round(limit/rows));
+  const latSpan=Math.max(.000001,ne.lat-sw.lat),lonSpan=Math.max(.000001,ne.lng-sw.lng);
+  const cells=new Map();
+  for(const st of items){
+    const r=Math.min(rows-1,Math.max(0,Math.floor((Number(st.lat)-sw.lat)/latSpan*rows)));
+    const c=Math.min(cols-1,Math.max(0,Math.floor((Number(st.lon)-sw.lng)/lonSpan*cols)));
+    const k=r+'|'+c;
+    if(!cells.has(k))cells.set(k,[]);
+    cells.get(k).push(st);
+  }
+  const qs=[...cells.values()],out=[];
+  let round=0;
+  while(out.length<limit){
+    let any=false;
+    for(const q of qs){
+      if(q[round]){
+        out.push(q[round]); any=true;
+        if(out.length>=limit)break;
+      }
+    }
+    if(!any)break;
+    round++;
+  }
+  return out;
+}
+
+function drawStationMarkers(shown){
+  const layer=window.__stationLayer,map=window.__stationMap;
   layer.clearLayers();
-  const key=norm(q);
-  const shown=key?GEO.filter(s=>norm(`${s.name}${s.pref}${s.loc||''}`).includes(key)):GEO;
-  const bounds=[];
-  shown.forEach(s=>{
-    const lat=Number(s.lat), lon=Number(s.lon);
+  shown.forEach(st=>{
+    const lat=Number(st.lat),lon=Number(st.lon);
     if(!Number.isFinite(lat)||!Number.isFinite(lon))return;
     const stationIcon=L.divIcon({
       className:'michi-station-icon',
-      html:`<div class="michi-pin ${s.approx?'approx':''}"><span></span></div>`,
-      iconSize:[30,38],
-      iconAnchor:[15,36],
-      popupAnchor:[0,-34]
+      html:`<div class="michi-pin ${st.approx?'approx':''}"><span></span></div>`,
+      iconSize:[30,38],iconAnchor:[15,36],popupAnchor:[0,-34]
     });
-    const marker=L.marker([lat,lon],{
-      icon:stationIcon,
-      title:s.name,
-      keyboard:true,
-      riseOnHover:true
-    }).addTo(layer);
+    const marker=L.marker([lat,lon],{icon:stationIcon,title:st.name,keyboard:true,riseOnHover:true}).addTo(layer);
     marker.on('click',()=>{
       L.popup({maxWidth:300,autoPan:true,closeButton:true,offset:[0,-22]})
-       .setLatLng([lat,lon])
-       .setContent(popup(s))
-       .openOn(map);
+       .setLatLng([lat,lon]).setContent(popup(st)).openOn(map);
     });
-    bounds.push([lat,lon]);
   });
+}
+
+function render(q=''){
+  if(!window.__stationLayer||!window.__stationMap)return;
+  const map=window.__stationMap;
+  const key=norm(q);
+
+  // Search is allowed across all 1,231 stations.
+  if(key){
+    const matched=GEO.filter(st=>norm(`${st.name}${st.pref}${st.loc||''}`).includes(key));
+    drawStationMarkers(matched.slice(0,600));
+    const badge=document.getElementById('countBadge');
+    if(badge)badge.textContent=`${matched.length}駅検索`;
+    if(matched.length){
+      const b=matched.map(st=>[Number(st.lat),Number(st.lon)]).filter(v=>Number.isFinite(v[0])&&Number.isFinite(v[1]));
+      if(b.length)map.fitBounds(b,{padding:[28,28],maxZoom:11});
+    }
+    return;
+  }
+
+  const bounds=map.getBounds();
+  const inView=GEO.filter(st=>{
+    const lat=Number(st.lat),lon=Number(st.lon);
+    return Number.isFinite(lat)&&Number.isFinite(lon)&&bounds.contains([lat,lon]);
+  });
+  const limit=stationLimitForZoom(map.getZoom());
+  const shown=pickStationsEvenly(inView,limit,bounds);
+  drawStationMarkers(shown);
+
   const badge=document.getElementById('countBadge');
-  if(badge)badge.textContent=key?`${shown.length}駅表示`:`国交省 ${GEO.length.toLocaleString('ja-JP')}駅`;
-  if(key&&bounds.length)map.fitBounds(bounds,{padding:[28,28],maxZoom:11});
+  if(badge)badge.textContent=`道の駅 ${shown.length}/${inView.length}駅`;
+}
+
+function scheduleStationRender(){
+  clearTimeout(stationRenderTimer);
+  stationRenderTimer=setTimeout(()=>{
+    const input=document.getElementById('searchInput');
+    if(!input||!input.value.trim())render('');
+  },180);
 }
 (()=>{
 const map=L.map('map',{zoomControl:true,minZoom:4,maxZoom:18,preferCanvas:true}).setView([37.1,137.2],5);
@@ -603,6 +685,7 @@ const byName=new Map();
 GEO.forEach((s,i)=>{s.id=s.id||i+1;const k=norm(s.name);if(!byName.has(k))byName.set(k,[]);byName.get(k).push(s)});
 render();
 setStatus(`国交省1,231駅をアプリ内データから表示中`,2200);
+setTimeout(()=>render(''),60);
 notice.style.display='none';
 search.addEventListener('input',e=>{clearTimeout(timer);timer=setTimeout(()=>render(e.target.value),170)});
 
@@ -654,7 +737,10 @@ hotelToggle?.addEventListener('change',()=>{
     setStatus('宿泊施設を非表示にしました',1400);
   }
 });
-map.on('moveend zoomend',()=>{if(hotelVisible)scheduleHotelViewportRender();});
+map.on('moveend zoomend',()=>{
+  scheduleStationRender();
+  if(hotelVisible)scheduleHotelViewportRender();
+});
 if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
 })();
 </script></body></html>
