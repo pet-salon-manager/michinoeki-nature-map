@@ -153,6 +153,26 @@ button{border:0;border-radius:14px;min-height:42px;padding:0 13px;font-weight:80
 .bottom-rail-title{font-size:12px;font-weight:900;color:#657064;margin:0 0 7px 2px}
 .bottom-rail-control .rail-switch{margin:0;width:auto}
 
+
+.rail-fixed-bar{
+ position:fixed!important;
+ left:10px!important;right:10px!important;
+ bottom:calc(10px + env(safe-area-inset-bottom))!important;
+ z-index:99999!important;
+ display:flex!important;align-items:center!important;gap:8px!important;
+ padding:7px 9px!important;
+ border:1px solid #d9cfb8!important;border-radius:16px!important;
+ background:rgba(250,247,238,.97)!important;
+ box-shadow:0 5px 20px rgba(0,0,0,.22)!important;
+ -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)
+}
+.rail-fixed-title{font-size:11px;font-weight:900;color:#657064;white-space:nowrap}
+.rail-fixed-bar .rail-switch{
+ flex:1!important;margin:0!important;padding:8px 10px!important;
+ justify-content:center!important;min-width:0!important
+}
+body{padding-bottom:90px!important}
+
 </style>
 </head>
 <body>
@@ -175,8 +195,8 @@ button{border:0;border-radius:14px;min-height:42px;padding:0 13px;font-weight:80
     <a class="top-social-btn yt" href="https://www.youtube.com/results?search_query=%E9%81%93%E3%81%AE%E9%A7%85" target="_blank" rel="noopener" aria-label="YouTubeで道の駅を検索">▶</a>
   </div>
 </div></div></header><div class="mapwrap"><div class="map-mini-legend"><span>● 道の駅</span>　<span style="color:#c46f2f">● 鉄道駅</span>　<span style="color:#1976d2">● 現在地</span></div><div id="map"></div><div class="nature-strip"><div class="source-pill">🌿 国土交通省「道の駅一覧表」＋内蔵位置データ</div></div><div class="status" id="status">地図上の位置を読み込んでいます…</div><div class="notice" id="notice"></div></div></div>
-<div class="bottom-rail-control">
-  <div class="bottom-rail-title">地図表示</div>
+<div class="rail-fixed-bar">
+  <span class="rail-fixed-title">地図表示</span>
   <label class="rail-switch" title="全国の鉄道駅を表示・非表示">
   <input id="railToggle" type="checkbox">
   <span class="rail-switch-ui"></span>
