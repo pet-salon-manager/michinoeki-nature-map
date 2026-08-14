@@ -243,6 +243,48 @@ body{padding-bottom:90px!important}
 }
 body{padding-bottom:calc(84px + env(safe-area-inset-bottom))!important}
 
+
+.onsen-switch{
+ display:flex;align-items:center;gap:7px;background:#fffdf8;border:1px solid #d9d1bb;
+ border-radius:999px;padding:8px 8px;margin:0;font-size:13px;font-weight:800;color:#6f412d
+}
+.onsen-switch input{position:absolute;opacity:0;pointer-events:none}
+.onsen-switch-ui{width:38px;height:22px;border-radius:999px;background:#cbc6b8;position:relative;transition:.2s;flex:0 0 auto}
+.onsen-switch-ui:after{content:'';position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:2px;left:2px;box-shadow:0 1px 4px rgba(0,0,0,.25);transition:.2s}
+.onsen-switch input:checked + .onsen-switch-ui{background:#a85f3a}
+.onsen-switch input:checked + .onsen-switch-ui:after{left:18px}
+.onsen-switch-state{font-size:11px;padding:2px 6px;border-radius:999px;background:#ece8dc;color:#777}
+.onsen-switch input:checked ~ .onsen-switch-state{background:#f6e6dc;color:#8d4c2f}
+
+.rail-fixed-bar{
+ grid-template-columns:1fr 1fr 1fr!important;
+}
+.rail-fixed-title{
+ grid-column:1/-1!important;
+ text-align:center!important;
+ margin-bottom:0!important
+}
+.rail-fixed-bar .rail-switch,
+.rail-fixed-bar .hotel-switch,
+.rail-fixed-bar .onsen-switch{
+ min-width:0!important;
+ justify-content:center!important;
+ padding:8px 5px!important;
+ gap:4px!important
+}
+.rail-fixed-bar .rail-switch-label,
+.rail-fixed-bar .hotel-switch-label,
+.rail-fixed-bar .onsen-switch-label{font-size:11px!important;white-space:nowrap}
+.rail-fixed-bar .rail-switch-ui,
+.rail-fixed-bar .hotel-switch-ui,
+.rail-fixed-bar .onsen-switch-ui{width:32px!important;height:20px!important}
+.rail-fixed-bar .rail-switch-ui:after,
+.rail-fixed-bar .hotel-switch-ui:after,
+.rail-fixed-bar .onsen-switch-ui:after{width:16px!important;height:16px!important}
+.rail-fixed-bar .rail-switch input:checked + .rail-switch-ui:after,
+.rail-fixed-bar .hotel-switch input:checked + .hotel-switch-ui:after,
+.rail-fixed-bar .onsen-switch input:checked + .onsen-switch-ui:after{left:14px!important}
+
 </style>
 </head>
 <body>
@@ -285,6 +327,13 @@ body{padding-bottom:calc(84px + env(safe-area-inset-bottom))!important}
   <span class="hotel-switch-label">🏨 宿泊施設</span>
   <span class="hotel-switch-state" id="hotelToggleState">OFF</span>
 </label>
+<label class="onsen-switch" title="温泉施設を表示・非表示">
+  <input id="onsenToggle" type="checkbox">
+  <span class="onsen-switch-ui"></span>
+  <span class="onsen-switch-label">♨️ 温泉施設</span>
+  <span class="onsen-switch-state" id="onsenToggleState">OFF</span>
+</label>
+
 
 </div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script>
@@ -479,6 +528,128 @@ window.__stationMap=map; window.__stationRenderer=renderer;
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
 const layer=L.layerGroup().addTo(map); window.__stationLayer=layer;
 const hotelLayer=L.layerGroup().addTo(map);
+const onsenLayer=L.layerGroup().addTo(map);
+let onsenVisible=false;
+let onsenFetchTimer=null;
+let onsenAbortController=null;
+const OVERPASS_ENDPOINT='https://overpass-api.de/api/interpreter';
+
+function onsenLimitForZoom(z){
+  if(z<=7) return 0;
+  if(z<=9) return 80;
+  if(z<=11) return 140;
+  return 220;
+}
+
+function buildOnsenAddress(tags){
+  const parts=[
+    tags['addr:province']||tags['addr:state']||'',
+    tags['addr:city']||tags['addr:town']||tags['addr:village']||'',
+    tags['addr:suburb']||'',
+    tags['addr:street']||'',
+    tags['addr:housenumber']||''
+  ].filter(Boolean);
+  return parts.join('');
+}
+
+function onsenPopup(x){
+  const t=x.tags||{};
+  const name=t.name||t['name:ja']||'温泉施設';
+  const addr=buildOnsenAddress(t);
+  const website=t.website||t['contact:website']||'';
+  const phone=t.phone||t['contact:phone']||'';
+  const kind=t.natural==='hot_spring'?'天然温泉・源泉':
+             t.amenity==='public_bath'?'公衆浴場・温浴施設':
+             t.leisure==='spa'?'スパ・温浴施設':'温泉関連施設';
+  const q=encodeURIComponent(`${name} ${addr}`);
+  return `<div class="hotel-popup">
+    <div style="font-weight:900;font-size:16px;color:#8d4c2f">♨️ ${esc(name)}</div>
+    <div style="font-size:12px;color:#666;margin-top:4px">${esc(kind)}${addr?`<br>${esc(addr)}`:''}${phone?`<br>☎ ${esc(phone)}`:''}</div>
+    <div class="hotel-actions">
+      ${website?`<a class="hotel-book" href="${esc(website)}" target="_blank" rel="noopener" style="background:#a85f3a">公式サイト</a>`:''}
+      <a class="hotel-route" href="https://www.google.com/maps/search/?api=1&query=${q}" target="_blank" rel="noopener">Googleマップで見る</a>
+    </div>
+  </div>`;
+}
+
+function elementLatLon(el){
+  const lat=Number(el.lat??el.center?.lat);
+  const lon=Number(el.lon??el.center?.lon);
+  return [lat,lon];
+}
+
+async function fetchOnsenForViewport(){
+  if(!onsenVisible) return;
+  const z=map.getZoom();
+  const limit=onsenLimitForZoom(z);
+  onsenLayer.clearLayers();
+
+  if(limit===0){
+    setStatus('♨️ 温泉施設を見るには地図をもう少し拡大してください',2200);
+    return;
+  }
+
+  const b=map.getBounds();
+  const sLat=b.getSouth(), wLon=b.getWest(), nLat=b.getNorth(), eLon=b.getEast();
+  const bbox=`${sLat},${wLon},${nLat},${eLon}`;
+  const query=`[out:json][timeout:20];
+(
+  node["natural"="hot_spring"](${bbox});
+  way["natural"="hot_spring"](${bbox});
+  relation["natural"="hot_spring"](${bbox});
+  node["amenity"="public_bath"](${bbox});
+  way["amenity"="public_bath"](${bbox});
+  relation["amenity"="public_bath"](${bbox});
+  node["leisure"="spa"](${bbox});
+  way["leisure"="spa"](${bbox});
+  relation["leisure"="spa"](${bbox});
+);
+out center tags;`;
+
+  if(onsenAbortController) onsenAbortController.abort();
+  onsenAbortController=new AbortController();
+
+  setStatus('♨️ 周辺の温泉施設を取得しています…');
+  try{
+    const r=await fetch(OVERPASS_ENDPOINT,{
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},
+      body:'data='+encodeURIComponent(query),
+      signal:onsenAbortController.signal
+    });
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data=await r.json();
+    const elems=Array.isArray(data.elements)?data.elements:[];
+    const valid=elems.filter(el=>{
+      const [lat,lon]=elementLatLon(el);
+      return Number.isFinite(lat)&&Number.isFinite(lon);
+    });
+
+    const shown=valid.slice(0,limit);
+    for(const el of shown){
+      const [lat,lon]=elementLatLon(el);
+      L.circleMarker([lat,lon],{
+        renderer:window.__stationRenderer,
+        radius:z>=11?5.2:4.5,
+        weight:1.2,
+        color:'#fff',
+        fillColor:'#a85f3a',
+        fillOpacity:.94
+      }).bindPopup(onsenPopup(el),{maxWidth:310}).addTo(onsenLayer);
+    }
+    setStatus(`♨️ 表示範囲 ${valid.length.toLocaleString('ja-JP')}件中 ${shown.length.toLocaleString('ja-JP')}件表示`,1800);
+  }catch(e){
+    if(e.name==='AbortError') return;
+    console.error(e);
+    setStatus('温泉施設APIの取得に失敗しました。少し待って再度お試しください',3000);
+  }
+}
+
+function scheduleOnsenFetch(){
+  clearTimeout(onsenFetchTimer);
+  onsenFetchTimer=setTimeout(()=>fetchOnsenForViewport(),500);
+}
+
 let hotelVisible=false;
 
 function getRakutenId(){ return localStorage.getItem('rakutenApplicationId') || ''; }
@@ -725,6 +896,20 @@ railToggle.addEventListener('change',()=>{
 });
 
 
+
+const onsenToggle=document.getElementById('onsenToggle');
+const onsenToggleState=document.getElementById('onsenToggleState');
+onsenToggle?.addEventListener('change',()=>{
+  onsenVisible=onsenToggle.checked;
+  onsenToggleState.textContent=onsenVisible?'ON':'OFF';
+  if(onsenVisible) fetchOnsenForViewport();
+  else{
+    if(onsenAbortController)onsenAbortController.abort();
+    onsenLayer.clearLayers();
+    setStatus('温泉施設を非表示にしました',1400);
+  }
+});
+
 const hotelToggle=document.getElementById('hotelToggle');
 const hotelToggleState=document.getElementById('hotelToggleState');
 hotelToggle?.addEventListener('change',()=>{
@@ -740,6 +925,7 @@ hotelToggle?.addEventListener('change',()=>{
 map.on('moveend zoomend',()=>{
   scheduleStationRender();
   if(hotelVisible)scheduleHotelViewportRender();
+  if(onsenVisible)scheduleOnsenFetch();
 });
 if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
 })();
