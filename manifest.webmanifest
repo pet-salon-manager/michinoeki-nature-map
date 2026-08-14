@@ -1,0 +1,9 @@
+{
+  "name": "道の駅 森旅マップ",
+  "short_name": "森旅マップ",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f5f1e6",
+  "theme_color": "#23452f",
+  "icons": []
+}
