@@ -1,10 +1,10 @@
 {
-  "name": "道の駅 森旅マップ",
-  "short_name": "森旅マップ",
+  "name": "道の駅 全国旅マップ",
+  "short_name": "全国旅マップ",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#f7f3e8",
-  "theme_color": "#315d3c",
+  "background_color": "#fffaf0",
+  "theme_color": "#fff7e9",
   "icons": [
     {
       "src": "./icon-192.png",
