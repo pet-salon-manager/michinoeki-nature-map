@@ -247,11 +247,8 @@ body{padding-bottom:90px!important}
 </div></div></header><div class="mapwrap">
 <div class="rakuten-settings">
   <div class="rakuten-settings-title">🏨 全国宿泊施設</div>
-  <div class="rakuten-settings-row">
-    <input id="rakutenApplicationId" type="text" autocomplete="off" placeholder="楽天 Application ID">
-    <button id="saveRakutenId" type="button">保存</button>
-  </div>
-  <div class="rakuten-settings-note">全国宿泊施設マスタは hotels.json から一括表示します。楽天APIはマスタ更新用に使います。</div><div class="hotel-master-status" id="hotelMasterStatus">全国宿泊施設マスタ：未読み込み</div>
+  <div class="rakuten-settings-note">楽天トラベル取得データを内蔵。宿泊施設をONにすると、現在の地図範囲とズームに合わせて表示します。</div>
+  <div class="hotel-master-status" id="hotelMasterStatus">全国宿泊施設マスタ：未読み込み</div>
 </div>
 <div class="map-mini-legend"><span>● 道の駅</span>　<span style="color:#c46f2f">● 鉄道駅</span>　<span style="color:#1976d2">● 現在地</span></div><div id="map"></div><div class="nature-strip"><div class="source-pill">🌿 国土交通省「道の駅一覧表」＋内蔵位置データ</div></div><div class="status" id="status">地図上の位置を読み込んでいます…</div><div class="notice" id="notice"></div></div></div>
 <div class="rail-fixed-bar">
@@ -434,54 +431,139 @@ function normalizeRakutenHotels(data){
 
 let HOTEL_MASTER=[];
 let hotelMasterLoaded=false;
+let hotelRenderTimer=null;
+
+function normalizeHotelCoord(v,isLon=false){
+  const n=Number(v);
+  if(!Number.isFinite(n)) return null;
+  // 今回の楽天データは角秒形式（例: 135456.68 → 37.626855...度）
+  if((!isLon && Math.abs(n)>90) || (isLon && Math.abs(n)>180)) return n/3600;
+  return n;
+}
 
 async function loadNationwideHotelMaster(){
   if(hotelMasterLoaded) return HOTEL_MASTER;
-  setStatus('全国の宿泊施設マスタを読み込んでいます…');
+  setStatus('全国35,688施設を読み込んでいます…');
   try{
     const r=await fetch('./hotels.json',{cache:'no-store'});
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const data=await r.json();
-    HOTEL_MASTER=Array.isArray(data)?data:(Array.isArray(data.hotels)?data.hotels:[]);
+    const raw=Array.isArray(data)?data:(Array.isArray(data.hotels)?data.hotels:[]);
+    HOTEL_MASTER=raw.map(h=>({
+      ...h,
+      _lat:normalizeHotelCoord(h.lat??h.latitude,false),
+      _lon:normalizeHotelCoord(h.lon??h.lng??h.longitude,true)
+    })).filter(h=>Number.isFinite(h._lat)&&Number.isFinite(h._lon)&&h._lat>=20&&h._lat<=50&&h._lon>=120&&h._lon<=155);
     hotelMasterLoaded=true;
+    const el=document.getElementById('hotelMasterStatus');
+    if(el)el.textContent=`全国宿泊施設マスタ：${HOTEL_MASTER.length.toLocaleString('ja-JP')}件`;
     return HOTEL_MASTER;
   }catch(e){
     console.error(e);
     HOTEL_MASTER=[];
     hotelMasterLoaded=true;
+    setStatus('hotels.jsonを読み込めませんでした',2800);
     return HOTEL_MASTER;
   }
 }
 
-async function fetchHotelsForMap(){
-  if(!hotelVisible) return;
+function hotelLimitForZoom(z){
+  if(z<=5) return 0;     // 全国表示では宿ピンを出さない
+  if(z<=7) return 50;    // 都道府県レベル
+  if(z<=9) return 100;   // 広域・市町村レベル
+  if(z<=11) return 180;  // 市街地
+  return 300;            // 詳細表示
+}
+
+function pickHotelsEvenly(items,limit,bounds){
+  if(items.length<=limit) return items;
+  const sw=bounds.getSouthWest(), ne=bounds.getNorthEast();
+  const rows=Math.max(2,Math.round(Math.sqrt(limit*0.75)));
+  const cols=Math.max(2,Math.round(limit/rows));
+  const latSpan=Math.max(0.000001,ne.lat-sw.lat);
+  const lonSpan=Math.max(0.000001,ne.lng-sw.lng);
+  const cells=new Map();
+
+  for(const h of items){
+    const r=Math.min(rows-1,Math.max(0,Math.floor((h._lat-sw.lat)/latSpan*rows)));
+    const c=Math.min(cols-1,Math.max(0,Math.floor((h._lon-sw.lng)/lonSpan*cols)));
+    const k=r+'|'+c;
+    if(!cells.has(k))cells.set(k,[]);
+    cells.get(k).push(h);
+  }
+  const queues=[...cells.values()];
+  const out=[];
+  let round=0;
+  while(out.length<limit && queues.length){
+    let progressed=false;
+    for(const q of queues){
+      if(q[round]){
+        out.push(q[round]);
+        progressed=true;
+        if(out.length>=limit)break;
+      }
+    }
+    if(!progressed)break;
+    round++;
+  }
+  return out.slice(0,limit);
+}
+
+function hotelPopup(h){
+  const u=h.hotelInformationUrl || h.planListUrl || '';
+  const price=h.hotelMinCharge!=null?`<br>料金目安：¥${Number(h.hotelMinCharge).toLocaleString('ja-JP')}〜`:'';
+  const review=h.reviewAverage!=null&&Number(h.reviewAverage)>0?`<br>楽天評価：${Number(h.reviewAverage).toFixed(2)}`:'';
+  const tel=h.telephoneNo?`<br>☎ ${esc(h.telephoneNo)}`:'';
+  const mapQ=encodeURIComponent(`${h.name||''} ${h.address||''}`);
+  return `<div class="hotel-popup">
+    <div style="font-weight:900;font-size:16px;color:#355b88">🏨 ${esc(h.name||'宿泊施設')}</div>
+    <div style="font-size:12px;color:#666;margin-top:4px">${esc(h.address||'')}${tel}${price}${review}</div>
+    <div class="hotel-actions">
+      ${u?`<a class="hotel-book" href="${esc(u)}" target="_blank" rel="noopener">楽天トラベルで詳細・予約</a>`:''}
+      <a class="hotel-route" href="https://www.google.com/maps/search/?api=1&query=${mapQ}" target="_blank" rel="noopener">Googleマップで見る</a>
+    </div>
+  </div>`;
+}
+
+async function renderHotelsForViewport(){
+  if(!hotelVisible){hotelLayer.clearLayers();return;}
   const hotels=await loadNationwideHotelMaster();
   hotelLayer.clearLayers();
-  if(!hotels.length){
-    setStatus('全国宿泊施設マスタがまだ登録されていません',2800);
+  if(!hotels.length)return;
+
+  const zoom=map.getZoom();
+  const limit=hotelLimitForZoom(zoom);
+  if(limit===0){
+    setStatus('宿泊施設を見るには地図をもう少し拡大してください',2200);
     return;
   }
-  hotels.forEach(h=>{
-    const lat=Number(h.lat??h.latitude),lon=Number(h.lon??h.lng??h.longitude);
-    if(!Number.isFinite(lat)||!Number.isFinite(lon))return;
-    const item={
-      name:h.name||h.hotelName||'宿泊施設',
-      address:h.address||'',
-      lat,lon,
-      hotelInformationUrl:h.hotelInformationUrl||h.url||'',
-      planListUrl:h.planListUrl||''
-    };
-    L.circleMarker([lat,lon],{
+
+  const b=map.getBounds();
+  const inView=hotels.filter(h=>b.contains([h._lat,h._lon]));
+  const shown=pickHotelsEvenly(inView,limit,b);
+
+  for(const h of shown){
+    L.circleMarker([h._lat,h._lon],{
       renderer:window.__stationRenderer,
-      radius:3.6,
-      weight:1,
+      radius:zoom>=11?5:4.2,
+      weight:1.2,
       color:'#ffffff',
       fillColor:'#496e9f',
-      fillOpacity:.88
-    }).bindPopup(hotelPopup(item),{maxWidth:300}).addTo(hotelLayer);
-  });
-  setStatus(`全国の宿泊施設 ${hotels.length.toLocaleString('ja-JP')}件を表示しました`,2200);
+      fillOpacity:.92
+    }).bindPopup(hotelPopup(h),{maxWidth:310}).addTo(hotelLayer);
+  }
+
+  const msg=`🏨 表示範囲 ${inView.length.toLocaleString('ja-JP')}件中 ${shown.length.toLocaleString('ja-JP')}件表示`;
+  setStatus(msg,1800);
 }
+
+function scheduleHotelViewportRender(){
+  clearTimeout(hotelRenderTimer);
+  hotelRenderTimer=setTimeout(()=>renderHotelsForViewport(),220);
+}
+
+// 互換用
+async function fetchHotelsForMap(){ return renderHotelsForViewport(); }
 
 const railLayer=L.layerGroup().addTo(map);
 window.__railLayer=railLayer;
@@ -560,26 +642,19 @@ railToggle.addEventListener('change',()=>{
 });
 
 
-const rakutenIdInput=document.getElementById('rakutenApplicationId');
-if(rakutenIdInput) rakutenIdInput.value=getRakutenId();
-document.getElementById('saveRakutenId')?.addEventListener('click',()=>{
-  const v=(rakutenIdInput?.value||'').trim();
-  localStorage.setItem('rakutenApplicationId',v);
-  setStatus(v?'楽天 Application IDを保存しました':'Application IDを削除しました',1800);
-  if(hotelVisible&&v) fetchHotelsForMap();
-});
 const hotelToggle=document.getElementById('hotelToggle');
 const hotelToggleState=document.getElementById('hotelToggleState');
 hotelToggle?.addEventListener('change',()=>{
   hotelVisible=hotelToggle.checked;
   hotelToggleState.textContent=hotelVisible?'ON':'OFF';
   if(hotelVisible){
-    fetchHotelsForMap().then(()=>{
-      const el=document.getElementById('hotelMasterStatus');
-      if(el)el.textContent=`全国宿泊施設マスタ：${HOTEL_MASTER.length.toLocaleString('ja-JP')}件`;
-    });
-  } else hotelLayer.clearLayers();
+    renderHotelsForViewport();
+  }else{
+    hotelLayer.clearLayers();
+    setStatus('宿泊施設を非表示にしました',1400);
+  }
 });
+map.on('moveend zoomend',()=>{if(hotelVisible)scheduleHotelViewportRender();});
 if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
 })();
 </script></body></html>
