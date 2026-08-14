@@ -139,6 +139,14 @@ button{border:0;border-radius:14px;min-height:42px;padding:0 13px;font-weight:80
   .top-social-buttons{gap:4px}
 }
 
+
+.popup-official-search{
+ display:block;text-decoration:none;text-align:center;
+ background:#fff8ea;color:#795126;border:1px solid #e6d7bd;
+ font-weight:800;padding:8px 10px;border-radius:10px;margin:-2px 0 8px;
+ min-height:22px;touch-action:manipulation
+}
+
 </style>
 </head>
 <body>
@@ -182,11 +190,15 @@ function setStatus(msg,ms=0){
   if(ms)setTimeout(()=>el.classList.add('hidden'),ms);
 }
 function popup(s){
-  const homepage = s.url
-    ? `<a class="popup-homepage" href="${esc(s.url)}" target="_blank" rel="noopener">🌐 ホームページ</a>`
-    : `<div class="popup-nohome">ホームページ情報なし</div>`;
+  const rawOfficial=(s.url||'').trim();
+  const officialUrl=rawOfficial.startsWith('http://') ? 'https://'+rawOfficial.slice(7) : rawOfficial;
+  const officialSearch=encodeURIComponent(`道の駅${s.name} 公式`);
+  const homepage = officialUrl
+    ? `<a class="popup-homepage" href="${esc(officialUrl)}" target="_blank" rel="noopener">🌐 公式ホームページ</a>
+       <a class="popup-official-search" href="https://www.google.com/search?q=${officialSearch}" target="_blank" rel="noopener">🔎 公式サイトを検索</a>`
+    : `<a class="popup-homepage" href="https://www.google.com/search?q=${officialSearch}" target="_blank" rel="noopener">🔎 公式サイトを検索</a>`;
 
-  const socialQuery = encodeURIComponent(`${s.name}`);
+  const socialQuery = encodeURIComponent(`道の駅${s.name}`);
   const xUrl = `https://x.com/search?q=${socialQuery}&src=typed_query`;
   const fbUrl = `https://www.facebook.com/search/top/?q=${socialQuery}`;
   const ytUrl = `https://www.youtube.com/results?search_query=${socialQuery}`;
