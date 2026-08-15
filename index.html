@@ -4,11 +4,8 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#23452f" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<meta name="apple-mobile-web-app-title" content="道の駅 全国旅マップ">
 <title>道の駅 全国旅マップ</title>
-<link rel="manifest" href="manifest.webmanifest" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
 <style>
 :root{--forest:#23452f;--forest2:#356044;--leaf:#66855d;--moss:#879c72;--cream:#f5f1e6;--sand:#e8dfc9;--wood:#8b6547;--ink:#26322b;--muted:#68736c;--white:#fffdf8;}
@@ -442,9 +439,14 @@ header{
 
 </style>
 
-<link rel="apple-touch-icon" href="icon-192.png">
-<link rel="manifest" href="./manifest.webmanifest">
 <meta name="theme-color" content="#315d3c">
+
+
+<link rel="manifest" href="./manifest-v2.webmanifest?v=20260815-2">
+<link rel="apple-touch-icon" sizes="192x192" href="./icon-roadstation-192-v2.png?v=20260815-2">
+<meta name="apple-mobile-web-app-title" content="道の駅 全国旅マップ">
+<meta name="application-name" content="道の駅 全国旅マップ">
+<meta name="apple-mobile-web-app-capable" content="yes">
 
 </head>
 <body>
@@ -935,4 +937,20 @@ map.on('moveend zoomend',()=>{
 });
 if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
 })();
-</script></body></html>
+</script>
+<script>
+(async()=>{
+  try{
+    if('serviceWorker' in navigator){
+      const regs = await navigator.serviceWorker.getRegistrations();
+      for(const r of regs){ try{ await r.unregister(); }catch(e){} }
+    }
+    if('caches' in window){
+      const keys = await caches.keys();
+      for(const k of keys){ try{ await caches.delete(k); }catch(e){} }
+    }
+  }catch(e){}
+})();
+</script>
+
+</body></html>
